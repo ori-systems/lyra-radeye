@@ -2,7 +2,7 @@
 #include "radeye/RadEyeCom.h"
 #include <iostream>
 #include <string.h>
-#include <radeye/Radeye.h> 
+#include <radeye_msgs/Radeye.h> 
 
 class RadEyeSensor 
 {
@@ -142,7 +142,7 @@ RadEyeSensor::RadEyeSensor(ros::NodeHandle n)
 
     for(int i = 0; i < this->radiation_type_.size();i++)
     {
-        this->rad_pub_.push_back(n.advertise<radeye::Radeye>("RadEye"+this->unit_name_+"_"+std::to_string(i)+"/data", 10));
+        this->rad_pub_.push_back(n.advertise<radeye_msgs::Radeye>("RadEye"+this->unit_name_+"_"+std::to_string(i)+"/data", 10));
         std::cout <<"Publishing on "<< "RadEye"+this->unit_name_+"_"+std::to_string(i)+"/data" << std::endl;
     }
 
@@ -169,7 +169,7 @@ void RadEyeSensor::run()
                 
                 for(int i = 0;i < this->radiation_type_.size();i++)
                 {
-                    radeye::Radeye msg;
+                    radeye_msgs::Radeye msg;
                     msg.units = std::stoi(results[(2*i)+1]);
                     if ((msg.units == 2) | (msg.units == 10))
                     {

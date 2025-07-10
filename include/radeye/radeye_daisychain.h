@@ -2,7 +2,7 @@
 #include "radeye/RadEyeCom.h"
 #include <iostream>
 #include <string.h>
-#include <radeye/Radeye.h>
+#include <radeye_msgs/Radeye.h>
 
 #include <algorithm>
 
@@ -167,7 +167,7 @@ RadEyeSensor::RadEyeSensor(ros::NodeHandle n)
     {
         for (int j = 0; j < this->radiation_type_[i].second.size(); j++)
         {
-            this->rad_pub_.push_back(std::tuple<std::string,int, ros::Publisher>(this->radiation_type_[i].first,j,n.advertise<radeye::Radeye>("RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data", 10)));
+            this->rad_pub_.push_back(std::tuple<std::string,int, ros::Publisher>(this->radiation_type_[i].first,j,n.advertise<radeye_msgs::Radeye>("RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data", 10)));
             std::cout << "Publishing on "
                       << "RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data" << std::endl;
         }
@@ -213,7 +213,7 @@ void RadEyeSensor::run()
                 std::cout << "publisher loops " << publisher_loops << std::endl;
                 for (int i = 0; i < publisher_loops; i++)
                 {
-                    radeye::Radeye msg;
+                    radeye_msgs::Radeye msg;
                     msg.units = std::stoi(data[(2 * i) + 1]);
                     if ((msg.units == 2) | (msg.units == 10))
                     {
