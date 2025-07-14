@@ -2,7 +2,7 @@
 #define RAD_EYE_COM_H
 
 #include <iostream>
-#include <string.h>
+#include <string>
 #include <sys/ioctl.h> // input output control 
 #include <fcntl.h>     // File Control Definitions          
 #include <termios.h>   // POSIX Terminal Control Definitions
@@ -13,14 +13,13 @@
 #include <sstream>
 #include <algorithm>
 #include <iterator>
-using namespace std;
 
 class RadEyeCom
 {
 	bool portOpened = false;
 	int fd; //file descriptor
 	struct termios SerialPortSettings; // structure for the serial port settings
-	string file_name = "";
+	std::string file_name = "";
 	bool printout = false;
 	int time_delay_ms = 0;
 	
@@ -47,7 +46,7 @@ class RadEyeCom
 					
 		usleep(600);//wait for a response
 		
-		for(int i = 0;i<10;i++) //try recieving 10 times
+		for(std::size_t i = 0;i<10;i++) //try recieving 10 times
 		{			
 			if(read(fd,&read_buffer,1)>0)
 			{
@@ -62,13 +61,13 @@ class RadEyeCom
 		return false;
 	};
 	
-	string SendCommand(string com)
+	std::string SendCommand(std::string com)
 	{
 		usleep(5000);//wait 5ms after SendWake()
 		com = ">"+com;//start byte
 		if (com.length() > 1)
 		{
-			string ret = "";
+			std::string ret = "";
 			char command[10];
 			strcpy(command, com.c_str());
 
@@ -78,7 +77,7 @@ class RadEyeCom
 						
 			usleep(600);//wait for a response
 			
-			for(int i = 0;i<400;i++) //try recieving 100 times
+			for(std::size_t i = 0;i<400;i++) //try recieving 100 times
 			{			
 				if(int bytes=read(fd,&read_buffer,1)>0)
 				{
@@ -106,11 +105,11 @@ class RadEyeCom
 	public:
 
 
-	string ReadSerial()
+	std::string ReadSerial()
 	{
-		string ret = "";
+		std::string ret = "";
 		char read_buffer[32];		
-		for(int i = 0;i<400;i++) //try recieving 100 times
+		for(std::size_t i = 0;i<400;i++) //try recieving 100 times
 		{			
 			if(int bytes=read(fd,&read_buffer,1)>0)
 			{
@@ -140,7 +139,7 @@ class RadEyeCom
 	RadEyeCom()
 	{}
 
-	void init(string file_name_)
+	void init(std::string file_name_)
 	{
 		file_name = file_name_;
 		fd = open(file_name.c_str(), O_RDWR | O_NOCTTY | O_NDELAY); //open file for read write
@@ -148,28 +147,28 @@ class RadEyeCom
 				
 			if (fd==-1)
 			{
-				#ifdef RAD_EYE_DEBUG
-				cout << "Error Cannot Open File " << file_name << endl;
+				#ifndef RAD_EYE_NO_DEBUG
+				std::cerr << "Error Cannot Open File " << file_name << std::endl;
 				#endif
 				return;
 			}
 			else
 			{
-				#ifdef RAD_EYE_DEBUG
-				cout << "Successfully opened file " << file_name << endl;
+				#ifndef RAD_EYE_NO_DEBUG
+				std::cout << "Successfully opened file " << file_name << std::endl;
 				#endif
 			}
 			if(!isatty(fd))
 			{
-				#ifdef RAD_EYE_DEBUG
-				cout << file_name << " is not a tty" << endl;
+				#ifndef RAD_EYE_NO_DEBUG
+				std::cerr << file_name << " is not a tty" << std::endl;
 				#endif
 				return;
 			}
-			if(tcgetattr(fd, &SerialPortSettings)<0)
+			if(tcgetattr(fd, &SerialPortSettings) < 0)
 			{
 				#ifdef RAD_EYE_DEBUG
-				cout << "could not load serial port settings for " << file_name << endl;
+				std::cout << "could not load serial port settings for " << file_name << std::endl;
 				#endif
 				return;
 			}
@@ -208,15 +207,15 @@ class RadEyeCom
 			//baude rate
 			if(cfsetispeed(&SerialPortSettings, B9600) < 0 || cfsetospeed(&SerialPortSettings, B9600) < 0) 
 			{
-				#ifdef RAD_EYE_DEBUG
-				cout << "Error could not set baude rate for " << file_name << endl;
+				#ifndef RAD_EYE_NO_DEBUG
+				std::cerr << "Error could not set baude rate for " << file_name << std::endl;
 				#endif
 			}
 			
 			if(tcsetattr(fd, TCSAFLUSH, &SerialPortSettings) < 0)
 			{
-				#ifdef RAD_EYE_DEBUG
-				cout << "Error could not set serial port settings for " << file_name << endl;
+				#ifndef RAD_EYE_NO_DEBUG
+				std::cout << "Error could not set serial port settings for " << file_name << std::endl;
 				#endif
 			}
 			
@@ -235,8 +234,8 @@ class RadEyeCom
 	virtual ~RadEyeCom()
 	{
 		close(fd);
-		#ifdef RAD_EYE_DEBUG
-		cout << "closed file " << file_name << endl;
+		#ifndef RAD_EYE_NO_DEBUG
+		std::cout << "closed file " << file_name << std::endl;
 		#endif
 	};
 
@@ -256,13 +255,13 @@ class RadEyeCom
 		time_delay_ms = delay_ms;
 	}
 	
-	vector <float> DataSetToFloats(string DataSet)
+	std::vector <float> DataSetToFloats(std::string DataSet)
 	{
-		istringstream iss(DataSet);
-		vector<string> tokens{istream_iterator<string>{iss}, istream_iterator<string>{}};
-		vector<float> data;
+		std::istringstream iss(DataSet);
+		std::vector<std::string> tokens{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
+		std::vector<float> data;
 		data.resize(tokens.size());
-		for(int i = 0; i<tokens.size();i++)
+		for(std::size_t i = 0; i<tokens.size();i++)
 		{
 			try
 			{
@@ -277,13 +276,13 @@ class RadEyeCom
 	}
 	
 	template<typename T>
-	vector <T> DataSetToVector(string DataSet)
+	std::vector <T> DataSetToVector(std::string DataSet)
 	{
-		istringstream iss(DataSet);
-		vector<string> tokens{istream_iterator<string>{iss}, istream_iterator<string>{}};
-		vector<T> data;
+		std::istringstream iss(DataSet);
+		std::vector<std::string> tokens{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
+		std::vector<T> data;
 		data.resize(tokens.size());
-		for(int i = 0; i<tokens.size();i++)
+		for(std::size_t i = 0; i<tokens.size();i++)
 		{
 			try
 			{
@@ -308,9 +307,9 @@ class RadEyeCom
 	
 	
 	// raw command interface, pass a string to give to RadEye it returns a string
-	string CommandString(string command)
+	std::string CommandString(std::string command)
 	{
-		string ret = "";
+		std::string ret = "";
 		for(int i = 0; i < 3; i++) //try 3 times 
 		{
 			usleep(10000);// minimum wait between sends (magic number)
@@ -328,7 +327,7 @@ class RadEyeCom
 	//4.1 History
 	int ReadHistoryCycleTime()
 	{
-		string cycleTime = CommandString("TR");
+		std::string cycleTime = CommandString("TR");
 		int IcycleTime;
 		try
 		{
@@ -342,18 +341,18 @@ class RadEyeCom
 	}
 	void SetHistoryCycleTime(int time)
 	{
-		string Command = "TW" + to_string(time);
+		std::string Command = "TW" + std::to_string(time);
 		CommandString(Command);
 	}
 	void InitializeHistoryReadout()
 	{
 		CommandString("HI");
 	}
-	virtual vector<int> ReadNextHistoryDataSet()
+	virtual std::vector<int> ReadNextHistoryDataSet()
 	{
 		return DataSetToVector<int>(CommandString("+"));
 	}
-	virtual vector<int> ReadLastHistoryDataSet()
+	virtual std::vector<int> ReadLastHistoryDataSet()
 	{
 		return DataSetToVector<int>(CommandString("-"));
 	}
@@ -368,11 +367,11 @@ class RadEyeCom
 	{
 		CommandString("EI");
 	}
-	virtual vector<int> ReadNextEventLog()
+	virtual std::vector<int> ReadNextEventLog()
 	{
 		return DataSetToVector<int>(CommandString("E+"));
 	}
-	virtual vector<int> ReadLastEventLog()
+	virtual std::vector<int> ReadLastEventLog()
 	{
 		return DataSetToVector<int>(CommandString("E-"));
 	}
@@ -384,17 +383,17 @@ class RadEyeCom
 	
 	//4.3 Date and Time
 	
-	string GetDateTime()
+	std::string GetDateTime()
 	{
 		int Idate[]={0,0,0,0,0,0};//{Y,M,D,H,M,S}
-		string Date = CommandString("ZR");
+		std::string Date = CommandString("ZR");
 		if (Date.length() == 13)
 		{
-			for(int i=0;i<6;i++)
+			for(std::size_t i=0;i<6;i++)
 				Idate[i]=(Date[i*2]-'0')*10+(Date[i*2+1]-'0');
 			Idate[0] += 2000;
 		}
-		Date = to_string(Idate[2]) + "/" + to_string(Idate[1]) + "/" + to_string(Idate[0]) + " " + to_string(Idate[3]) + ":" + to_string(Idate[4]) + ":" + to_string(Idate[5]);
+		Date = std::to_string(Idate[2]) + "/" + std::to_string(Idate[1]) + "/" + std::to_string(Idate[0]) + " " + std::to_string(Idate[3]) + ":" + std::to_string(Idate[4]) + ":" + std::to_string(Idate[5]);
 		return Date;
 	}
 	void SetDateTime(unsigned int year,unsigned int month,unsigned int day,unsigned int hours,unsigned int minutes,unsigned int seconds)
@@ -402,7 +401,7 @@ class RadEyeCom
 		year %= 2000;
 		if(year <= 99 && month <=12 && day <=31 && hours <24 && minutes < 60 && seconds < 60)
 		{
-			string CommandDateTime = to_string(year)+to_string(month)+to_string(day)+to_string(hours)+to_string(minutes)+to_string(seconds);
+			std::string CommandDateTime = std::to_string(year)+std::to_string(month)+std::to_string(day)+std::to_string(hours)+std::to_string(minutes)+std::to_string(seconds);
 		}
 	}
 	
@@ -417,47 +416,47 @@ class RadEyeCom
 	
 	virtual void ReadMenuConfiguration()
 	{
-		cout << "this is the virtual function 'ReadMenuConfiguration()' needs implementing for specific RadEye" << endl;
-		cout << CommandString("mR") << endl;
+		std::cout << "this is the virtual function 'ReadMenuConfiguration()' needs implementing for specific RadEye" << std::endl;
+		std::cout << CommandString("mR") << std::endl;
 	}
 	virtual void WriteMenuConfiguration(int configuration)
 	{
-		cout << "this is the virtual function 'WriteMenuConfiguration()' needs implementing for specific RadEye"  << endl;
+		std::cout << "this is the virtual function 'WriteMenuConfiguration()' needs implementing for specific RadEye"  << std::endl;
 		//CommandString("mWHex");
 	}
 	virtual void ReadConfigurationflag1()
 	{
-		cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << endl;
-		cout << CommandString("fR") << endl;
+		std::cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << std::endl;
+		std::cout << CommandString("fR") << std::endl;
 	}
 	virtual void WriteConfigurationFlag1()
 	{
-		cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << endl;
+		std::cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << std::endl;
 		//CommandString("fWHex");
 	} 
 	virtual void ReadConfigurationflag2()
 	{
-		cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << endl;
-		cout << CommandString("kR") << endl;
+		std::cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << std::endl;
+		std::cout << CommandString("kR") << std::endl;
 	}
 	virtual void WriteConfigurationFlag2()
 	{
-		cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << endl;
+		std::cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << std::endl;
 		//CommandString("kWHex");
 	} 
 	virtual void ReadConfigurationflag3()
 	{
-		cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << endl;
-		cout << CommandString("KR") << endl;
+		std::cout << "this is the virtual function 'Readconfigurationflag1()' needs implementing for specific RadEye"  << std::endl;
+		std::cout << CommandString("KR") << std::endl;
 	}
 	virtual void WriteConfigurationFlag3()
 	{
-		cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << endl;
+		std::cout << "this is the virtual function 'WriteConfigurationFlag1()' needs implementing for specific RadEye"  << std::endl;
 		//CommandString("KWHex");
 	} 
-	string ReadMenuLanguage()
+	std::string ReadMenuLanguage()
 	{
-		string Language = CommandString("sR");
+		std::string Language = CommandString("sR");
 		int ILanguage = 0;
 		try
 		{
@@ -483,7 +482,7 @@ class RadEyeCom
 		}
 		return Language;
 	}
-	void SetMenuLanguage(string Lang)
+	void SetMenuLanguage(std::string Lang)
 	{
 		if(Lang[0] == 'E' ||Lang[0] == 'e' ||Lang[0] == '0') //english
 			CommandString("sW0");
@@ -492,11 +491,11 @@ class RadEyeCom
 		else if(Lang[0] == 'F' ||Lang[0] == 'f' ||Lang[0] == '2')//french
 			CommandString("sW2");
 		else
-			cout << "unknown language" << endl;
+			std::cout << "unknown language" << std::endl;
 	}
 	int ReadTimeoutOfAlarmLatching()
 	{
-		string Time = CommandString("ART");
+		std::string Time = CommandString("ART");
 		int ITime = 0;
 		try
 		{
@@ -512,7 +511,7 @@ class RadEyeCom
 	{
 		if (time < 256)
 		{
-			string command = "AWT" + to_string(time);
+			std::string command = "AWT" + std::to_string(time);
 			CommandString(command);
 		}
 	}
@@ -521,7 +520,7 @@ class RadEyeCom
 	
 	int ReadSerialTimeout()
 	{
-		string Time = CommandString("ARS");
+		std::string Time = CommandString("ARS");
 		int ITime = 0;
 		try
 		{
@@ -535,12 +534,12 @@ class RadEyeCom
 	}
 	void SetSerialTimeout(unsigned int time)
 	{
-			string command = "AWS" + to_string(time);
+			std::string command = "AWS" + std::to_string(time);
 			CommandString(command);
 	}
 	int ReadingResetTransferErrorCounts()
 	{
-		string Errors = CommandString("t");
+		std::string Errors = CommandString("t");
 		int IErrors = 0;
 		try
 		{
@@ -555,27 +554,27 @@ class RadEyeCom
 	
 	//4.7 Calibration
 	
-	string ReadCalibrationDate()
+	std::string ReadCalibrationDate()
 	{
 		int Idate[]={0,0,0};//{Y,M,D}
-		string Date = CommandString("WR");
+		std::string Date = CommandString("WR");
 		if (Date.length() == 7)
 		{
-			for(int i=0;i<3;i++)
+			for(std::size_t i=0;i<3;i++)
 				Idate[i]=(Date[i*2]-'0')*10+(Date[i*2+1]-'0');
 			Idate[0] += 2000;
 		}
-		Date = to_string(Idate[2]) + "/" + to_string(Idate[1]) + "/" + to_string(Idate[0]);
+		Date = std::to_string(Idate[2]) + "/" + std::to_string(Idate[1]) + "/" + std::to_string(Idate[0]);
 		return Date;
 	}
 	virtual void ReadCalibrationFactor() // lol
 	{
-		cout << "this is the virtual function 'ReadCalibrationFactor()' needs implementing for specific RadEye"  << endl;
-		cout << CommandString("$") << endl;
+		std::cout << "this is the virtual function 'ReadCalibrationFactor()' needs implementing for specific RadEye"  << std::endl;
+		std::cout << CommandString("$") << std::endl;
 	}
 	int ReadDeviceSerialNumber()
 	{
-		string SerialNumber = CommandString("#R");
+		std::string SerialNumber = CommandString("#R");
 		int ISerialNumber = 0;
 		try
 		{
@@ -592,12 +591,12 @@ class RadEyeCom
 	
 	// 4.8 RadEye Type
 	
-	string RadeEyeType()
+	std::string RadeEyeType()
 	{
-		string Type = CommandString("Vx");
-		istringstream iss(Type);
+		std::string Type = CommandString("Vx");
+		std::istringstream iss(Type);
 		
-		vector<string> tokens{istream_iterator<string>{iss}, istream_iterator<string>{}};
+		std::vector<std::string> tokens{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
 		
 		return tokens[1];
 	}
@@ -615,65 +614,65 @@ class RadEyeCom
 	
 	// 4.10 Device Description
 	
-	string DeviceDescriptionReadingText()
+	std::string DeviceDescriptionReadingText()
 	{
 		return CommandString("DR");
 	}
-	void WriteText(string text)
+	void WriteText(std::string text)
 	{
 		int numberOfSends = text.length()/20 + 1;
 		if (numberOfSends > 10) numberOfSends = 10;
 		for(int i=0; i<numberOfSends;i++)
 		{
-			string command = "DW" + to_string(i) + text.substr(i*20,20);
-			//cout << command << endl;
+			std::string command = "DW" + std::to_string(i) + text.substr(i*20,20);
+			//cout << command << std::endl;
 			CommandString(command);
 			sleep(1);
 		}
 	}
-	string ReadTextLine(unsigned int line)
+	std::string ReadTextLine(unsigned int line)
 	{
 		if (line < 4)
 		{
-			string command = "dR" + to_string(line);
+			std::string command = "dR" + std::to_string(line);
 			return CommandString(command);
 		}
 		else
 		return "";
 	}
-	void WriteTextLine(unsigned int line, string text)
+	void WriteTextLine(unsigned int line, std::string text)
 	{
 		if (line < 4)
 		{
-			string command = "dW" + to_string(line) + text.substr(0,16);
+			std::string command = "dW" + std::to_string(line) + text.substr(0,16);
 			CommandString(command);
 		}
 	}
 	
 	// 4.11 Measurement Values
-	virtual vector<int> ReadRawCountRates()
+	virtual std::vector<int> ReadRawCountRates()
 	{
 		return DataSetToVector<int>(CommandString("Z"));
 	}
-	virtual vector<int> ReadFilteredCountRates()
+	virtual std::vector<int> ReadFilteredCountRates()
 	{
 		return DataSetToVector<int>(CommandString("z"));
 	}
-	virtual vector<double> DoseRate()
+	virtual std::vector<double> DoseRate()
 	{
 		return DataSetToVector<double>(CommandString("R"));
 	}
-	virtual vector<int> AccumulatedDose()
+	virtual std::vector<int> AccumulatedDose()
 	{
 		return DataSetToVector<int>(CommandString("D"));
 	}
 	void ClearAccumulatedDose()
 	{
-		cout << CommandString("clr") << endl;
+		std::cout << CommandString("clr") << std::endl;
 	}
 	float ReadBatteryVoltage()
 	{
-		string Voltage = CommandString("Ux");
+		std::string Voltage = CommandString("Ux");
 		float FVoltage = 0;
 		try
 		{
@@ -687,14 +686,14 @@ class RadEyeCom
 	}
 	virtual void ReadStatus()
 	{
-		cout << "this is the virtual function 'ReadStatus()' needs implementing for specific RadEye"  << endl;
-		cout << CommandString("F") << endl;
+		std::cout << "this is the virtual function 'ReadStatus()' needs implementing for specific RadEye"  << std::endl;
+		std::cout << CommandString("F") << std::endl;
 	}
 	float ReadTemperature()
 	{
-		cout << "reading temperature" << endl;
-		string Temperature = CommandString("tR");
-		cout << "Temperature = CommandString(tR) = " << Temperature << endl;
+		std::cout << "reading temperature" << std::endl;
+		std::string Temperature = CommandString("tR");
+		std::cout << "Temperature = CommandString(tR) = " << Temperature << std::endl;
 		float ITemperature = 0;
 		try
 		{
@@ -704,11 +703,11 @@ class RadEyeCom
 		{
 			ITemperature = -1;
 		}
-		cout << "temperature is" << ITemperature << endl; 
+		std::cout << "temperature is" << ITemperature << std::endl;
 		return ITemperature;
 	}
 	
-	virtual vector<int> ReadNominalValueHighVoltage()
+	virtual std::vector<int> ReadNominalValueHighVoltage()
 	{
 		return DataSetToVector<int>(CommandString("HR"));
 	}

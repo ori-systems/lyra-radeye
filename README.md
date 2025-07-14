@@ -1,4 +1,4 @@
-# Package Usage
+﻿# Package Usage
 
 A package for interfacing with the ThermoFisher RadEye sensors.
 
@@ -6,15 +6,15 @@ Currently implemented are the G10 and SX families of devices, however this node 
 
 Inside the package you will find a udev rule which can be copied into "/etc/udev/rules.d/". This will make the radeye sensor always appear on /dev/radeye to save issues with usb ordering.
 
-## radeye_node
+## radeye_node & radeye_daisychain_node
 
 The sensor being used will be detected when plugged into the docking station with data being published on a topic starting with /Radeye/radeye*SERIALNUMBER*_*READINGNUMBER*/data, where the serial number relates to the device and the reading number deals with sensors which return multiple values. 
 
-It has several possible run time arguments being:
-* serial_port: The port the radeye sensor is plugged into. Default: /dev/radeye
-* frame_id: The Frame to publish the sensor data in. Default: RadEye
-* measurement_units: Allows changing of the sensor units. Default: "" -> usV/h (see below)
-* additional_settings: A way to pass in any additional settings. Default: "" (see below)
+It has several ROS 2 parameters that can be set at runtime (e.g., in a launch file):
+* `serial_port`: The port the radeye sensor is plugged into. Default: `/dev/radeye` for single, `/dev/ttyACM1` for daisychain.
+* `frame_id`: The TF frame to publish the sensor data in. Default: `RadEye`
+* `measurement_units`: Allows changing of the sensor units. Default: `""` -> uSv/h (see below)
+* `additional_settings`: A way to pass in any additional settings. Default: `""` (see below)
  
 
 #### Returned Values
@@ -56,17 +56,16 @@ For each sensor there are many other settings which can be altered, which can be
 
 ## radeye_radiation_point_visualiser.py
 
-node used to publish the 
+This node subscribes to `Radeye` messages and publishes a `PointCloud2` message containing the radiation measurements positioned in the world using TF.
 
-run time parameters:
-This node is used to publish a point cloud containing all of the radeye messages recieved. 
-* pointcloud_name: can be used to name the output topic
-* z_height: can be used to override the z part of the sensor tf 
-* sensor_frame: can be used to set the tf of the sensor
-* config_file: filepath to the config of sensors being used. The config file should be in json format and contain an array of "Topics", with each element containing:
-* SubscriberName: The topic mane to subscribe to
-* RadiationValue: The radiation value (0:Unknown,1:alpha,2:beta,4:gamma,8:neutron)
-* RadiationType: Purely used to labeling so can be anything but I recommend using (Unknown,alpha,beta,gamma)
+ROS 2 Parameters:
+* `pointcloud_name`: Base name for the output PointCloud2 topic. Default: `radeye_measurements`.
+* `z_height`: Can be used to override the z-coordinate of the sensor's TF frame. Default: `None`.
+* `sensor_frame`: The target TF frame for the point cloud. Default: `radeye`.
+* `config_file`: Path to the JSON config file for sensors, relative to the package share directory. The config file should contain an array of "Topics", with each element containing:
+  * `SubscriberName`: The topic name to subscribe to.
+  * `RadiationValue`: The radiation value (0:Unknown, 1:alpha, 2:beta, 4:gamma, 8:neutron).
+  * `RadiationType`: A string label for the radiation type (e.g., "alpha", "beta", "gamma").
 
 See config/example_topics.json for an example.
 
@@ -76,7 +75,7 @@ services:
 
 ## random_tf.py
 
-Also included is a tf publisher used for testing the radiation point cloud when no robot is being used.
+Also included is a TF publisher used for testing the radiation point cloud when no robot is being used.
 This will publish a wandering tf in frame RadEye
 ## Message Structure
 

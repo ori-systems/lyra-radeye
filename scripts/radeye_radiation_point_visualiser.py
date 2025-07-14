@@ -1,45 +1,50 @@
 #!/usr/bin/env python
 
-import sys
 import json
 import time
 import csv
-import rospy
-import rospkg
+import rclpy
+from rclpy.node import Node
+from ament_index_python.packages import get_package_share_directory
 import tf2_ros
+from rclpy.duration import Duration
 import numpy as np 
 import sensor_msgs.msg as smsg 
 from sensor_msgs import point_cloud2 as pc2
-from dynamic_reconfigure.server import Server
-from std_msgs.msg import Bool
-from radeye.msg import Radeye
-from radeye.srv import GenCSV,GenCSVResponse,ClearRadiationData,ClearRadiationDataResponse
+from radeye_msgs.msg import Radeye
+from radeye_msgs.srv import GenCSV, ClearRadiationData
 
 """
 This node stores Radeye sensor messages and publishes a pointcloud with their locations (x,y,z), and radiation values.
 """
 
-class RadCloud(object):
-	"""docstring for Radcloud."""
+class RadCloud(Node):
+	"""A class to store Radeye sensor messages and publish a pointcloud."""
 	def __init__(self):
-		rospy.init_node("radiation_to_pcl")
+		super().__init__("radiation_to_pcl")
 
+		# Load params
+		self.declare_parameter("pointcloud_name", "radeye_measurements")
+		self.declare_parameter("config_file", "config/magnox_radeye_topics.json")
+		self.declare_parameter("sensor_frame", "radeye")
+		self.declare_parameter("z_height", -1.0) # Use -1.0 as default for no override
 
-		#load params
-		pointcloud_topic = rospy.get_param("~pointcloud_name","radeye_measurements") #Name of the pointcloud to hold radiation data
-		config_file = rospy.get_param("~config_file","config/magnox_radeye_topics.json") #file relating the radiation types to radiation types numbers
-		self._sensor_frame = rospy.get_param("~sensor_frame","radeye") #Set the frame in which the pointcloud should be published 
-		self._z_height = rospy.get_param("~z_height",None) #set x height of point cloud
+		pointcloud_topic = self.get_parameter("pointcloud_name").get_parameter_value().string_value
+		config_file_path = self.get_parameter("config_file").get_parameter_value().string_value
+		self._sensor_frame = self.get_parameter("sensor_frame").get_parameter_value().string_value
+		z_height_param = self.get_parameter("z_height").get_parameter_value().double_value
 
-		if self._z_height == None:
-			self._z_flag = False
-		else:
+		if z_height_param >= 0.0:
+			self._z_height = z_height_param
 			self._z_flag = True
+		else:
+			self._z_height = None
+			self._z_flag = False
 
-		rospack = rospkg.RosPack()
-		self._data_file = rospack.get_path('radeye') + "/datasets/" + str(time.ctime()) +".csv"
+		package_share_directory = get_package_share_directory('radeye')
+		self._data_file = package_share_directory + "/datasets/" + str(time.ctime()) +".csv"
 
-		if config_file == None:  # data type is unknown if undefined
+		if not config_file_path:  # data type is unknown if undefined
 			self._field_names = ["radiation"]
 			self._radiation_topics = ["radiationTopic"]
 			self._radiation_values = ["0"]
@@ -47,7 +52,7 @@ class RadCloud(object):
 			self._field_names = []
 			self._radiation_topics = []
 			self._radiation_values = []
-			config_file = rospack.get_path('radeye') + "/" + config_file
+			config_file = package_share_directory + "/" + config_file_path
 			with open(config_file) as json_file:
 				json_data = json.load(json_file)
 
@@ -56,19 +61,14 @@ class RadCloud(object):
 				self._radiation_topics.append(i["SubscriberName"])
 				self._radiation_values.append(i["RadiationValue"])
 
-
-
 		self._sensor_subscribers = []
 		
 		for i in self._radiation_topics:
-			self._sensor_subscribers.append(rospy.Subscriber(i, Radeye, self.callback))
-			rospy.loginfo("subscribed to: "+i)
+			self._sensor_subscribers.append(self.create_subscription(Radeye, i, self.callback, 10))
+			self.get_logger().info("subscribed to: " + i)
 
-
-
-		self.genCSV = rospy.Service('gen_csv', GenCSV, self.csv_service)
-		self.clearData = rospy.Service('clear_radiation_data', ClearRadiationData, self.clear_service)
-		
+		self.genCSV_service = self.create_service(GenCSV, 'gen_csv', self.csv_service)
+		self.clearData_service = self.create_service(ClearRadiationData, 'clear_radiation_data', self.clear_service)
 		
 		#generate a point cloud for all of the sensors being used plus one for the combined data
 		self._publishers =[]
@@ -76,7 +76,7 @@ class RadCloud(object):
 			self._publishers.append(rospy.Publisher(pointcloud_topic+"_"+str(i), smsg.PointCloud2, queue_size=2))
 		self._seq = 0
 		self._publishers.append(rospy.Publisher(pointcloud_topic, smsg.PointCloud2, queue_size=2))
-		
+
 		#TF buffer to handle transforming location where data was taken, to a global frame, e.g. map
 		self._tf_buffer = tf2_ros.Buffer()
 		self._listener = tf2_ros.TransformListener(self._tf_buffer)
@@ -88,59 +88,56 @@ class RadCloud(object):
 			self._data_buffer[i] = [] 
 		self._pc = smsg.PointCloud2()
 
-		rate = rospy.Rate(1)
-
-		while not rospy.is_shutdown():
-
-			self.publish_pcl()
-			rate.sleep()
+		self.timer = self.create_timer(1.0, self.publish_pcl)
 
 	def callback(self, msg):
 		try:
 			#Find position of the radiation sensor (based on the frame in the message header) in the global frame, e.g. map
-			print "success 0"
-			frame_trans = self._tf_buffer.lookup_transform(self._sensor_frame, msg.header.frame_id, msg.header.stamp, rospy.Duration(1))
-			print "success 1"
+			self.get_logger().debug("success 0")
+			frame_trans = self._tf_buffer.lookup_transform(self._sensor_frame, msg.header.frame_id, msg.header.stamp, timeout=Duration(seconds=1.0))
+			self.get_logger().debug("success 1")
 			newData = np.asarray([[  frame_trans.transform.translation.x, frame_trans.transform.translation.y, frame_trans.transform.translation.z, self.rosmsg_to_data(msg.measurement)]], dtype=np.float32)
-			print "success 2" 
+			self.get_logger().debug("success 2")
 
-			if len(self._data_buffer[msg.radiation_type]) == 0:
-				self._data_buffer[msg.radiation_type] = newData
-				print "success 3"
+			radiation_type_str = str(msg.radiation_type)
+			if len(self._data_buffer[radiation_type_str]) == 0:
+				self._data_buffer[radiation_type_str] = newData
+				self.get_logger().debug("success 3")
 			else:
-				print "success 4"
-				self._data_buffer[msg.radiation_type] = np.concatenate((self._data_buffer[msg.radiation_type], newData), axis=0) #Add new data to the existing buffer
+				self.get_logger().debug("success 4")
+				self._data_buffer[radiation_type_str] = np.concatenate((self._data_buffer[radiation_type_str], newData), axis=0) #Add new data to the existing buffer
 
-
-			print "ADDED DATA TO BUFFER"
+			self.get_logger().info("Added data to buffer")
 
 		except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-			print "ERROR"
+			self.get_logger().error("TF lookup failed")
 		return
 
 
-	def csv_service(self,req):
+	def csv_service(self, request, response):
 		try:
-			if req.data == True:
+			if request.data == True:
 				fnames = ["x","y","z"]
 				for key in self._field_names:
 					fnames.append(key)
 				
-				print fnames
+				self.get_logger().info(f"CSV field names: {fnames}")
 				filename = self._data_file
 				with open(filename, 'w') as csvfile:
 					writer = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
 					writer.writerow(fnames)
 					for p in pc2.read_points(self._pc, field_names = fnames, skip_nans=False):
-						print p
+						self.get_logger().debug(f"Writing point to CSV: {p}")
 						writer.writerow(p)		
-			return GenCSVResponse(True)
-		except:
-			return GenCSVResponse(False)
+			response.success = True
+		except Exception as e:
+			self.get_logger().error(f"Failed to generate CSV: {e}")
+			response.success = False
+		return response
 
-	def clear_service(self,req):
+	def clear_service(self, request, response):
 		try:
-			if req.data == True:
+			if request.data == True:
 				self._data_buffer = {}
 
 				for i in self._radiation_values:
@@ -154,12 +151,12 @@ class RadCloud(object):
 		if not isinstance(msg, float):
 			try:
 				msg = float(msg)
-			except:
+			except (ValueError, TypeError):
 				msg = float('nan')
-				print("Could not convert data to float")
+				self.get_logger().warn("Could not convert data to float")
 
 		return msg
-
+	
 	def publish_pcl(self):
 		
 		msg_data = self._data_buffer.copy()
@@ -175,7 +172,7 @@ class RadCloud(object):
 
 			self._pc = self.populate_pc(total_points,count,msg_data,msg_data.keys())
 
-	def populate_pc(self,no_of_points,count,msg_data,keys):   #needs cleaning up
+	def populate_pc(self, no_of_points, count, msg_data, keys):
 		pc = smsg.PointCloud2()
 		pc.header.frame_id = self._sensor_frame
 		pc.height = 1 #With height=1, data can be unordered             
@@ -190,7 +187,7 @@ class RadCloud(object):
 			pc.fields.append(smsg.PointField(str(self._field_names[i]), 12+(4*i), smsg.PointField.FLOAT32, 1))
 
 		pc.is_bigendian = False
-		pc.point_step =  len(pc.fields)*4 #4 bytes per field, and data.shape[1] gives the number of fields (x, y, z, radiation)
+		pc.point_step = len(pc.fields) * 4 # 4 bytes per field
 		pc.row_step = pc.point_step * no_of_points #Size of a row step, for height=1 this is the length of all the data
 		pc.is_dense = True
 
@@ -206,31 +203,31 @@ class RadCloud(object):
 				temp = [float('nan')]*len(pc.fields)
 				temp[0:3] = i[0:3]
 				temp[rad_position] = i[3]
-				
-				if self._z_flag:  #If Z height set to 0.0, rather than sensor height, set third column to 0.0 - original buffer is untouched
-					msg_data_reformated[:,2] = self._z_height
+
+				if self._z_flag:
+					temp[2] = self._z_height
 
 				msg_data_reformated += temp
 
+		if msg_data_reformated:
+			pc.data = np.asarray(msg_data_reformated, dtype=np.float32).tobytes()
+		else:
+			pc.data = b''
 
-		#print msg_data_reformated		
-		msg_data_reformated = np.asarray(msg_data_reformated, dtype=np.float32).tostring()
-
-
-		pc.data = msg_data_reformated #Byte representations of data
-
-		pc.header.stamp = rospy.Time.now()
+		pc.header.stamp = self.get_clock().now().to_msg()
 		pc.header.seq = self._seq
 		self._publishers[count].publish(pc)
 
 		return pc
 
+def main(args=None):
+	rclpy.init(args=args)
+	print("Starting radiation data to pointcloud node")
+	print("radiation data can be exported to csv using service 'gen_csv' and the cloud can be reset using 'clear_radiation_data'")
+	rad_cloud_node = RadCloud()
+	rclpy.spin(rad_cloud_node)
+	rad_cloud_node.destroy_node()
+	rclpy.shutdown()
 
-if __name__ == "__main__":
-
-	try:
-		print("Starting radiation data to pointcloud node")
-		print("radiation data can be exported to csv using services pub_csv and the cloud can be reset using clear_radiation_data")
-		s = RadCloud()
-		rospy.spin()
-	except rospy.ROSInterruptException: pass
+if __name__ == '__main__':
+	main()

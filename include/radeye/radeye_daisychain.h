@@ -1,229 +1,223 @@
-#include "ros/ros.h"
+#ifndef RADEYE_DAISYCHAIN_H
+#define RADEYE_DAISYCHAIN_H
+
+#include "rclcpp/rclcpp.hpp"
 #include "radeye/RadEyeCom.h"
 #include <iostream>
-#include <string.h>
-#include <radeye_msgs/Radeye.h>
-
+#include <string>
+#include <vector>
+#include <tuple>
+#include <chrono>
+#include <radeye_msgs/msg/radeye.hpp>
 #include <algorithm>
 
+using namespace std::chrono_literals;
 
 /*
 THIS NEEDS REWRITTING USING OBJECTS RATHER THAN VECTORS ON VECTORs ON VECTORS
 */
 
-class RadEyeSensor
+class RadEyeDaisychainNode : public rclcpp::Node
 {
 
     //Class to interface with the thermofisher radeye sensors.
     //Currently only implemented the G-10 and SX sensors
 
 public:
-    RadEyeSensor(ros::NodeHandle);
-    ~RadEyeSensor();
+    RadEyeDaisychainNode();
+    ~RadEyeDaisychainNode();
     std::vector<std::vector<std::string>> readRadEye();
     void decToBinary(int, bool *);
-    void run();
     bool connected();
 
 private:
+    void run();
     std::string serial_port_;
     std::string frame_id_;
     int expected_devices_;
     std::vector<std::string> unit_names_;
-    ros::NodeHandle n_;
-    std::vector<std::tuple<std::string, int, ros::Publisher>> rad_pub_;
+    std::vector<std::tuple<std::string, int, rclcpp::Publisher<radeye_msgs::msg::Radeye>::SharedPtr>> rad_pub_;
     std::vector<std::pair<std::string, std::vector<int>>> radiation_type_;
     RadEyeCom RadEye_;
+    rclcpp::TimerBase::SharedPtr timer_;
 };
 
-RadEyeSensor::RadEyeSensor(ros::NodeHandle n)
+RadEyeDaisychainNode::RadEyeDaisychainNode() : Node("radeye_daisychain_node")
 {
+    this->declare_parameter<int>("expected_devices", 2);
+    this->declare_parameter<std::string>("serial_port", "/dev/ttyACM1");
+    this->declare_parameter<std::string>("frame_id", "RadEye");
+    this->declare_parameter<std::string>("measurement_units", "");
+    this->declare_parameter<std::string>("additional_settings", "");
 
+    this->get_parameter("expected_devices", this->expected_devices_);
+    this->get_parameter("serial_port", this->serial_port_);
+    this->get_parameter("frame_id", this->frame_id_);
     std::string measurement_units, additional_settings;
-    this->n_ = n;
-    this->n_.param<int>("expected_devices", this->expected_devices_, 2);
-    this->n_.param<std::string>("serial_port", this->serial_port_, "/dev/ttyACM1");
-    this->n_.param<std::string>("frame_id", this->frame_id_, "RadEye");
-    this->n_.param<std::string>("measurement_units", measurement_units, "");
-    this->n_.param<std::string>("additional_settings", additional_settings, "");
-    std::cout << "Connecting to: " << this->serial_port_ << std::endl;
+    this->get_parameter("measurement_units", measurement_units);
+    this->get_parameter("additional_settings", additional_settings);
+
+    RCLCPP_INFO(this->get_logger(), "Connecting to: %s", this->serial_port_.c_str());
     this->RadEye_.init(this->serial_port_);
     if (this->connected() == 0)
     {
-        ROS_ERROR("No sensor cable detected!");
-        exit(0);
+        RCLCPP_ERROR(this->get_logger(), "No sensor cable detected!");
+        rclcpp::shutdown();
+        return;
     }
     this->RadEye_.ActivateCyclicSending();
     this->RadEye_.ClearAccumulatedDose();
     std::string unit_name_ = "-1"; // -1 is returned when no sensor is present
     int count = 0;
     int device_count = 0;
-    std::cout << "Expecting " << this->expected_devices_ << " Sensors" << std::endl;
+    RCLCPP_INFO(this->get_logger(), "Expecting %d Sensors", this->expected_devices_);
 
-    while (device_count != this->expected_devices_)
+    while (device_count != this->expected_devices_ && rclcpp::ok())
     {
         //unit_name_ = std::to_string(this->RadEye_.ReadDeviceSerialNumber());
         std::vector<std::vector<std::string>> radeye_data;
         radeye_data = this->readRadEye();
 
-        for (int i = 0; i < radeye_data.size(); i++)
+        for (size_t i = 0; i < radeye_data.size(); i++)
         {
-            std::vector<string> model;
+            std::vector<std::string> model;
             model = radeye_data[i];
             if (model.size() > 5)
             {
                 unit_name_ = model[5];
                 if (std::find(this->unit_names_.begin(), this->unit_names_.end(), unit_name_) != this->unit_names_.end())
                 {
-                    std::cout << unit_name_ << " already exists" << std::endl;
+                    RCLCPP_DEBUG(this->get_logger(), "%s already exists", unit_name_.c_str());
                 }
                 else
                 {
-                    std::cout << unit_name_ << " found" << std::endl;
+                    RCLCPP_INFO(this->get_logger(), "%s found", unit_name_.c_str());
                     this->unit_names_.push_back(unit_name_);
                     device_count++;
                 }
             }
         }
-        usleep(500000);
+        rclcpp::sleep_for(500ms);
         count++;
         if (count == 100)
         {
-            ROS_ERROR("Too few sensors detected!");
-            exit(0);
+            RCLCPP_ERROR(this->get_logger(), "Too few sensors detected!");
+            rclcpp::shutdown();
+            return;
         }
     }
 
-    std::cout << "Detected unit nos: " << std::endl;
-    for (int i = 0; i < this->unit_names_.size(); i++)
+    RCLCPP_INFO(this->get_logger(), "Detected unit nos: ");
+    for (size_t i = 0; i < this->unit_names_.size(); i++)
     {
-        std::cout << this->unit_names_[i] << std::endl;
+        RCLCPP_INFO(this->get_logger(), "- %s", this->unit_names_[i].c_str());
     }
 
-    for (int i = 0; i < this->unit_names_.size(); i++)
+    for (size_t i = 0; i < this->unit_names_.size(); i++)
     {
 
         if (this->unit_names_[i] == "FH41B2")
         {
             std::vector<int> r{4};
             this->radiation_type_.push_back(std::pair<std::string, std::vector<int>>("FH41B2", r)); //see Radeye message file for type definitions
-            /*if (measurement_units == "")
-            {
-                this->RadEye_.CommandString("uW25");
-            }
-            else 
-            {
-                this->RadEye_.CommandString(measurement_units);
-                std::cout <<"Changing Measurement Units" << std::endl;
-            }*/
         }
         else if (this->unit_names_[i] == "SX")
         {
             std::vector<int> r{1, 2};
             this->radiation_type_.push_back(std::pair<std::string, std::vector<int>>("SX", r));
-            //this->radiation_type_.push_back(std::pair<std::string, int>("SX",1));
-            /*if (measurement_units == "")
-            {
-                this->RadEye_.CommandString("uW40");
-
-            }
-            else 
-            {
-                this->RadEye_.CommandString(measurement_units);
-                ROS_WARN("Changing Measurement Units");
-            }*/
         }
         else
         {
             // Add extra sensors here
-            ROS_ERROR(" Sensor model not implemented! (feel free to add)");
-            exit(0);
+            RCLCPP_ERROR(this->get_logger(), " Sensor model not implemented! (feel free to add)");
+            rclcpp::shutdown();
+            return;
         }
     }
 
-    std::cout << "additional settings " << additional_settings << std::endl;
+    RCLCPP_INFO(this->get_logger(), "additional settings: %s", additional_settings.c_str());
     std::string setting = "";
-    for (int i = 0; i <= additional_settings.size(); i++)
+    for (size_t i = 0; i <= additional_settings.size(); i++)
     {
         if (i == additional_settings.size())
         {
-
             this->RadEye_.CommandString(setting);
             setting = "";
         }
         else if (additional_settings[i] == ',')
         {
-
             this->RadEye_.CommandString(setting);
             setting = "";
         }
         else
         {
-            setting += additional_settings[i];
+            setting += additional_settings[i]; 
         }
     }
 
-    for (int i = 0; i < this->radiation_type_.size(); i++)
+    for (size_t i = 0; i < this->radiation_type_.size(); i++)
     {
-        for (int j = 0; j < this->radiation_type_[i].second.size(); j++)
+        for (size_t j = 0; j < this->radiation_type_[i].second.size(); j++)
         {
-            this->rad_pub_.push_back(std::tuple<std::string,int, ros::Publisher>(this->radiation_type_[i].first,j,n.advertise<radeye_msgs::Radeye>("RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data", 10)));
-            std::cout << "Publishing on "
-                      << "RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data" << std::endl;
+            std::string topic_name = "RadEye" + this->radiation_type_[i].first + "_" + std::to_string(j) + "/data";
+            auto pub = this->create_publisher<radeye_msgs::msg::Radeye>(topic_name, 10);
+            this->rad_pub_.push_back(std::make_tuple(this->radiation_type_[i].first, j, pub));
+            RCLCPP_INFO(this->get_logger(), "Publishing on %s", topic_name.c_str());
         }
     }
+
+    timer_ = this->create_wall_timer(1s, std::bind(&RadEyeDaisychainNode::run, this));
 }
 
-RadEyeSensor::~RadEyeSensor() {}
+RadEyeDaisychainNode::~RadEyeDaisychainNode() {}
 
-bool RadEyeSensor::connected()
+bool RadEyeDaisychainNode::connected()
 {
     // Can be used to check if a sensor is still connected
     return RadEye_.IsPortOpen();
 }
 
-void RadEyeSensor::run()
+void RadEyeDaisychainNode::run()
 {
 
     std::vector<std::vector<std::string>> rad_data = this->readRadEye();
-    std::cout << "length " << rad_data.size() << std::endl;
-    for (int j = 0; j < rad_data.size(); j++)
+    RCLCPP_DEBUG(this->get_logger(), "rad_data length: %zu", rad_data.size());
+    for (size_t j = 0; j < rad_data.size(); j++)
     {
         std::vector<std::string> data = rad_data[j];
         if (data.size() > 0)
         {
-
             try
             {
                 bool binary_num[8];
                 this->decToBinary(strtol(data[4].c_str(), 0, 16), binary_num);
 
-                int publisher_loops = 1;
+                size_t publisher_loops = 1;
                 int rad_type = 0;
 
-                for (int i = 0; i < this->radiation_type_.size(); i++)
+                for (size_t i = 0; i < this->radiation_type_.size(); i++)
                 {
                     if (data[5] == this->radiation_type_[i].first)
                     {
                         publisher_loops = this->radiation_type_[i].second.size();
-                        rad_type = i;
+                        rad_type = i; 
                     }
                 }
 
-                std::cout << "publisher loops " << publisher_loops << std::endl;
-                for (int i = 0; i < publisher_loops; i++)
+                RCLCPP_DEBUG(this->get_logger(), "publisher loops: %zu", publisher_loops);
+                for (size_t i = 0; i < publisher_loops; i++)
                 {
-                    radeye_msgs::Radeye msg;
+                    auto msg = radeye_msgs::msg::Radeye();
                     msg.units = std::stoi(data[(2 * i) + 1]);
                     if ((msg.units == 2) | (msg.units == 10))
                     {
-                        msg.measurement = stoi(data[(2 * i)]);
-                        msg.total_dose = stoi(data[6]);
+                        msg.measurement = std::stoi(data[(2 * i)]);
+                        msg.total_dose = std::stoi(data[6]);
                     }
                     else
                     {
-                        msg.measurement = stoi(data[(2 * i)]) / 100.0;
-                        msg.total_dose = stoi(data[6]) / 100.0;
+                        msg.measurement = std::stoi(data[(2 * i)]) / 100.0;
+                        msg.total_dose = std::stoi(data[6]) / 100.0;
                     }
 
                     msg.overloaded = binary_num[1];
@@ -233,38 +227,37 @@ void RadEyeSensor::run()
 
                     msg.radiation_type = this->radiation_type_[rad_type].second[i];
                     msg.header.frame_id = this->frame_id_;
-                    msg.header.stamp = ros::Time::now();
+                    msg.header.stamp = this->get_clock()->now();
 
-                    for (int k = 0; k < this->rad_pub_.size(); k++)
+                    for (size_t k = 0; k < this->rad_pub_.size(); k++)
                     {
-                        std::cout << std::get<0>(rad_pub_[k]) << "," << std::get<1>(rad_pub_[k]) << "   "<< msg.model << "," << i<< std::endl;
+                        RCLCPP_DEBUG(this->get_logger(), "%s, %d   %s, %zu", std::get<0>(rad_pub_[k]).c_str(), std::get<1>(rad_pub_[k]), msg.model.c_str(), i);
                         if ((std::get<0>(rad_pub_[k]) == msg.model) & (std::get<1>(rad_pub_[k]) == i))
                          {
-                            std::get<2>(rad_pub_[k]).publish(msg);
+                            std::get<2>(rad_pub_[k])->publish(msg);
                          }
-                        
                     }
                 }
             }
             catch (std::exception &e)
             {
-                std::cout << "ill formated data" << std::endl;
+                RCLCPP_WARN(this->get_logger(), "Ill-formatted data: %s", e.what());
             }
         }
     }
 }
 
-std::vector<std::vector<std::string>> RadEyeSensor::readRadEye()
+std::vector<std::vector<std::string>> RadEyeDaisychainNode::readRadEye()
 {
 
     std::string rec = this->RadEye_.ReadSerial();
-    std::cout << "data read: " << rec << std::endl;
+    RCLCPP_DEBUG(this->get_logger(), "data read: %s", rec.c_str());
     int start_string = -1;
     int end_string = -1;
     std::vector<std::vector<std::string>> rad_data;
 
     // Scan recieved data for start and stop bits
-    for (int i = 0; i < rec.size(); i++)
+    for(std::size_t i = 0; i < rec.size(); i++)
     {
         if (rec[i] == 0x02)
         {
@@ -290,12 +283,12 @@ std::vector<std::vector<std::string>> RadEyeSensor::readRadEye()
     if (rad_data.size() == 0)
     {
         //return empty vector if the data is bad
-        ROS_WARN("Ill formatted data, check if the sensor is aligned correctly");
+        RCLCPP_WARN(this->get_logger(), "Ill formatted data, check if the sensor is aligned correctly");
     }
     return rad_data;
 }
 
-void RadEyeSensor::decToBinary(int n, bool *binary_num)
+void RadEyeDaisychainNode::decToBinary(int n, bool *binary_num)
 {
 
     //Convert decimal number to binary
@@ -309,3 +302,5 @@ void RadEyeSensor::decToBinary(int n, bool *binary_num)
         i++;
     }
 }
+
+#endif // RADEYE_DAISYCHAIN_H

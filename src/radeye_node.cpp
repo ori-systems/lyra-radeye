@@ -1,21 +1,14 @@
 #include "radeye/radeye.h"
+#include "rclcpp/rclcpp.hpp"
 
 //Basic node to run radeye sensor
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "RadEye");
-	ros::NodeHandle n("~");
-    ros::Rate r(1); //The sensor only published as 1Hz
-
-    RadEyeSensor Sensor(n);
-    
-    while(ros::ok())
-    {
-        
-        Sensor.run();
-        r.sleep();
-    }
-
-
+    rclcpp::init(argc, argv);
+    // The class was renamed to RadEyeSensorNode to avoid conflicts
+    auto node = std::make_shared<RadEyeSensorNode>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
 }
