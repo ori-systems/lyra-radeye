@@ -29,10 +29,10 @@ ament_target_dependencies(radeye_daisychain_node rclcpp std_msgs radeye_msgs)
 ## Install ##
 #############
 
-# install(
-#   DIRECTORY launch
-#   DESTINATION share/${PROJECT_NAME}/
-# )
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}/
+)
 
 install(
   DIRECTORY config
